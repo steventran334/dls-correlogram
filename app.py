@@ -11,7 +11,7 @@ st.markdown("""
 **Instructions:**
 1. Upload your `.xlsx` or `.csv` file. 
 2. Select **Conditions** and **Angles**.
-3. Use the **Color Customization** section in the sidebar to change the series colors.
+3. Use the **Color Customization** section in the sidebar to select colors from the dropdown menus.
 """)
 
 # --- 1. File Upload ---
@@ -66,12 +66,35 @@ if uploaded_file:
         st.sidebar.markdown("---")
         st.sidebar.header("🎨 Color Customization")
         
-        # Create a dictionary to store user-defined colors for each angle
-        angle_colors = {}
-        default_colors = {"Back": "#0000FF", "Side": "#008000", "Forward": "#FF0000"} # Blue, Green, Red
+        # Predefined color options for the dropdown
+        color_options = {
+            "Blue": "#0000FF",
+            "Green": "#008000",
+            "Red": "#FF0000",
+            "Orange": "#FFA500",
+            "Purple": "#800080",
+            "Cyan": "#00FFFF",
+            "Magenta": "#FF00FF",
+            "Black": "#000000",
+            "Grey": "#808080",
+            "Gold": "#FFD700"
+        }
+        color_names = list(color_options.keys())
+
+        # Logic for Color Assignments
+        mode = st.sidebar.radio("Color Priority:", ["Color by Angle", "Color by Condition"])
         
-        for angle in ["Back", "Side", "Forward"]:
-            angle_colors[angle] = st.sidebar.color_picker(f"Color for {angle}", default_colors[angle])
+        final_colors = {}
+        if mode == "Color by Angle":
+            for angle in ["Back", "Side", "Forward"]:
+                # Default selection based on typical angle colors
+                default_ix = 0 if angle == "Back" else (1 if angle == "Side" else 2)
+                choice = st.sidebar.selectbox(f"Color for {angle}", color_names, index=default_ix)
+                final_colors[angle] = color_options[choice]
+        else:
+            for condition in selected_conditions:
+                choice = st.sidebar.selectbox(f"Color for {condition}", color_names, index=0)
+                final_colors[condition] = color_options[choice]
 
         # --- 5. Helpers & Logic ---
         line_styles = ['solid', 'dash', 'longdash', 'dashdot', 'dot']
@@ -124,17 +147,24 @@ if uploaded_file:
             for i, sheet_name in enumerate(selected_conditions):
                 if sheet_name in all_sheets:
                     df = all_sheets[sheet_name]
-                    style = line_styles[i % len(line_styles)]
-                    for angle in selected_angles:
+                    # Style logic: If colored by angle, condition gets dash style. 
+                    # If colored by condition, angle gets dash style.
+                    style_cycle = line_styles[i % len(line_styles)]
+                    
+                    for j, angle in enumerate(selected_angles):
                         indices = angle_map[angle]
                         t_idx = indices['t_exp'] if data_type_key == 'd_exp' else indices['t_fit']
                         d_idx = indices[data_type_key]
                         x_data, y_data = get_column_data(df, t_idx, d_idx)
+                        
                         if not x_data.empty:
+                            c = final_colors[angle] if mode == "Color by Angle" else final_colors[sheet_name]
+                            d = line_styles[j % len(line_styles)] if mode == "Color by Condition" else style_cycle
+                            
                             fig.add_trace(go.Scatter(
                                 x=x_data, y=y_data, mode='lines',
                                 name=f"{sheet_name} - {angle}",
-                                line=dict(color=angle_colors[angle], dash=style, width=2),
+                                line=dict(color=c, dash=d, width=2),
                                 legendgroup=f"{sheet_name}" 
                             ))
             fig.update_layout(title=f"<b>{title}</b>", template="plotly_white", height=500)
@@ -147,7 +177,9 @@ if uploaded_file:
                     df = all_sheets[sheet_name]
                     for angle in selected_angles:
                         indices = angle_map[angle]
-                        c = angle_colors[angle]
+                        
+                        c = final_colors[angle] if mode == "Color by Angle" else final_colors[sheet_name]
+                        
                         x_exp, y_exp = get_column_data(df, indices['t_exp'], indices['d_exp'])
                         if not x_exp.empty:
                             fig.add_trace(go.Scatter(
@@ -172,8 +204,7 @@ if uploaded_file:
             for i, sheet_name in enumerate(selected_conditions):
                 if sheet_name in all_sheets:
                     df = all_sheets[sheet_name]
-                    style = line_styles[i % len(line_styles)]
-                    for angle in selected_angles:
+                    for j, angle in enumerate(selected_angles):
                         indices = angle_map[angle]
                         try:
                             t, y_exp, y_fit = get_aligned_data(df, indices, t_min, t_max)
@@ -191,11 +222,14 @@ if uploaded_file:
                                 "SSD (g₁)": f"{np.sum(residuals_g1**2):.5f}"
                             })
 
+                            c = final_colors[angle] if mode == "Color by Angle" else final_colors[sheet_name]
+                            d = line_styles[j % len(line_styles)] if mode == "Color by Condition" else line_styles[i % len(line_styles)]
+
                             fig.add_trace(go.Scatter(
                                 x=t, y=residuals_g1,
                                 mode='lines',
                                 name=f"{sheet_name} {angle}",
-                                line=dict(color=angle_colors[angle], dash=style, width=1.5),
+                                line=dict(color=c, dash=d, width=1.5),
                                 hovertemplate=f"<b>{sheet_name} {angle}</b><br>Res: %{{y:.2e}}<br>Time: %{{x:.1e}}"
                             ))
                         except:
@@ -217,8 +251,6 @@ if uploaded_file:
         if show_exp_vs_fit:
             st.markdown("---")
             st.markdown("#### Experimental vs. Fit Comparison")
-            # Dynamic legend based on chosen colors
-            st.info(f"🎨 Legend: <span style='color:{angle_colors['Back']}'>●</span> Back | <span style='color:{angle_colors['Side']}'>●</span> Side | <span style='color:{angle_colors['Forward']}'>●</span> Forward (dotted = exp, solid = fit)", icon="ℹ️")
             st.plotly_chart(create_comparison_plot(), use_container_width=True)
 
         if show_residuals:
