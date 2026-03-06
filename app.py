@@ -75,19 +75,20 @@ if uploaded_file:
             return clean_df.iloc[:, 0], clean_df.iloc[:, 1]
 
         def update_axes_layout(fig):
-            """Helper to apply axis lines and zero lines consistently."""
+            """Helper to apply standard axis styling."""
             axis_type = "log" if use_log_scale else "linear"
             
             fig.update_xaxes(
                 type=axis_type, 
                 tickformat=".1e", 
                 exponentformat="e",
-                showline=True, linewidth=1, linecolor='black', mirror=True,
-                zeroline=True, zerolinewidth=1, zerolinecolor='grey'
+                showline=True, linewidth=1, linecolor='black', mirror=True, # Axis border
+                zeroline=False # No internal zero line
             )
             fig.update_yaxes(
-                showline=True, linewidth=1, linecolor='black', mirror=True,
-                zeroline=True, zerolinewidth=1.5, zerolinecolor='black' # Bold zero line
+                showline=True, linewidth=1, linecolor='black', mirror=True, # Axis border
+                zeroline=False,    # REMOVED: The black line crossing the graph
+                rangemode="tozero" # ADDED: Forces the axis to go down to 0 so the label shows
             )
             return fig
 
