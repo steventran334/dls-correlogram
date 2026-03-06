@@ -69,8 +69,8 @@ if uploaded_file:
         # Updated Default Color Cycle: Blue, Green, Red, Orange, Purple
         color_options = {
             "Blue": "#0000FF",
-            "Green": "#008000",
             "Red": "#FF0000",
+            "Green": "#008000",
             "Orange": "#FFA500",
             "Purple": "#800080",
             "Cyan": "#00FFFF",
