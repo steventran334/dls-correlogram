@@ -69,26 +69,20 @@ if uploaded_file:
             return clean_df.iloc[:, 0], clean_df.iloc[:, 1]
 
         def get_aligned_data(df, indices):
-            """
-            Gets Exp and Fit data aligned by index (dropping rows where ANY value is missing).
-            Returns time, y_exp, y_fit
-            """
-            # Extract all 4 columns: T_exp, D_exp, T_fit, D_fit
             cols = [indices['t_exp'], indices['d_exp'], indices['t_fit'], indices['d_fit']]
             subset = df.iloc[:, cols].dropna()
             subset = subset.apply(pd.to_numeric, errors='coerce').dropna()
-            
-            # Assuming T_exp and T_fit are identical (standard DLS), we return T_exp
             return subset.iloc[:, 0], subset.iloc[:, 1], subset.iloc[:, 3]
 
-        def update_axes_layout(fig, y_title="Correlation"):
+        def update_axes_layout(fig, y_title="Correlation Coefficient (g₂-1)"):
             axis_type = "log" if use_log_scale else "linear"
             fig.update_xaxes(
+                title="Time (µs)", # Updated Label
                 type=axis_type, tickformat=".1e", exponentformat="e",
                 showline=True, linewidth=1, linecolor='black', mirror=True
             )
             fig.update_yaxes(
-                title=y_title,
+                title=y_title, # Updated Label
                 showline=True, linewidth=1, linecolor='black', mirror=True,
                 zeroline=False, rangemode="tozero"
             )
@@ -142,9 +136,6 @@ if uploaded_file:
             return update_axes_layout(fig)
 
         def create_residuals_plot():
-            """
-            Plots (Exp - Fit) and calculates SSD error.
-            """
             fig = go.Figure()
             error_data = []
 
@@ -155,24 +146,17 @@ if uploaded_file:
                     
                     for angle in selected_angles:
                         indices = angle_map[angle]
-                        # Get aligned data to calculate difference safely
                         try:
                             t, y_exp, y_fit = get_aligned_data(df, indices)
-                            
-                            # Calculate Residuals
                             residuals = y_exp - y_fit
-                            
-                            # Calculate SSD (Fit Error)
                             ssd = np.sum(residuals ** 2)
                             
-                            # Store error for table - STANDARD FLOAT FORMATTING
                             error_data.append({
                                 "Condition": sheet_name,
                                 "Angle": angle,
-                                "Total Fit Error (SSD)": f"{ssd:.6f}" # Changed from .4e to .6f
+                                "Total Fit Error (SSD)": f"{ssd:.6f}"
                             })
 
-                            # Plot
                             fig.add_trace(go.Scatter(
                                 x=t, y=residuals,
                                 mode='lines',
@@ -183,11 +167,11 @@ if uploaded_file:
                         except Exception:
                             continue 
 
-            # Add Zero Line
             fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
 
             fig.update_layout(title="<b>Residuals (Experimental - Fit)</b>", template="plotly_white", height=500)
-            return update_axes_layout(fig, y_title="Residual Amplitude"), pd.DataFrame(error_data)
+            # For residuals, the Y-axis is technically the difference in correlation
+            return update_axes_layout(fig, y_title="Residuals (g₂-1)"), pd.DataFrame(error_data)
 
         # --- 5. Main Layout ---
         st.markdown("### 2️⃣ Visual Analysis")
