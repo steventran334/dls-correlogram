@@ -66,7 +66,7 @@ if uploaded_file:
         st.sidebar.markdown("---")
         st.sidebar.header("🎨 Color Customization")
         
-        # Predefined color options for the dropdown
+        # Updated Default Color Cycle: Blue, Green, Red, Orange, Purple
         color_options = {
             "Blue": "#0000FF",
             "Green": "#008000",
@@ -81,19 +81,20 @@ if uploaded_file:
         }
         color_names = list(color_options.keys())
 
-        # Logic for Color Assignments
         mode = st.sidebar.radio("Color Priority:", ["Color by Angle", "Color by Condition"])
         
         final_colors = {}
         if mode == "Color by Angle":
-            for angle in ["Back", "Side", "Forward"]:
-                # Default selection based on typical angle colors
-                default_ix = 0 if angle == "Back" else (1 if angle == "Side" else 2)
+            # Default indices follow the new cycle: Blue (0), Green (1), Red (2)
+            for i, angle in enumerate(["Back", "Side", "Forward"]):
+                default_ix = i if i < len(color_names) else 0
                 choice = st.sidebar.selectbox(f"Color for {angle}", color_names, index=default_ix)
                 final_colors[angle] = color_options[choice]
         else:
-            for condition in selected_conditions:
-                choice = st.sidebar.selectbox(f"Color for {condition}", color_names, index=0)
+            # Default indices follow the cycle: Blue, Green, Red, Orange, Purple
+            for i, condition in enumerate(selected_conditions):
+                default_ix = i % 5 # Cycles through the first 5 requested colors
+                choice = st.sidebar.selectbox(f"Color for {condition}", color_names, index=default_ix)
                 final_colors[condition] = color_options[choice]
 
         # --- 5. Helpers & Logic ---
@@ -147,8 +148,6 @@ if uploaded_file:
             for i, sheet_name in enumerate(selected_conditions):
                 if sheet_name in all_sheets:
                     df = all_sheets[sheet_name]
-                    # Style logic: If colored by angle, condition gets dash style. 
-                    # If colored by condition, angle gets dash style.
                     style_cycle = line_styles[i % len(line_styles)]
                     
                     for j, angle in enumerate(selected_angles):
@@ -177,7 +176,6 @@ if uploaded_file:
                     df = all_sheets[sheet_name]
                     for angle in selected_angles:
                         indices = angle_map[angle]
-                        
                         c = final_colors[angle] if mode == "Color by Angle" else final_colors[sheet_name]
                         
                         x_exp, y_exp = get_column_data(df, indices['t_exp'], indices['d_exp'])
