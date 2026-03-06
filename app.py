@@ -11,7 +11,7 @@ st.markdown("""
 **Instructions:**
 1. Upload your `.xlsx` or `.csv` file. 
 2. Select **Conditions** and **Angles**.
-3. View **Experimental** and **Fit** overlays, as well as the **Specialist Error (RMSE g₂)** to match your Malvern results.
+3. Use the **Color Customization** section in the sidebar to change the series colors.
 """)
 
 # --- 1. File Upload ---
@@ -21,7 +21,6 @@ if uploaded_file:
     try:
         # Handle file types
         if uploaded_file.name.endswith('.csv'):
-            # header=1 skips the first row (e.g., 'back', 'side' labels) to use the actual headers
             all_sheets = {'Uploaded Data': pd.read_csv(uploaded_file, header=1)}
         else:
             all_sheets = pd.read_excel(uploaded_file, sheet_name=None, header=1)
@@ -44,7 +43,7 @@ if uploaded_file:
                 "Choose Angles to View:",
                 ["Back", "Side", "Forward"],
                 default=["Back", "Side", "Forward"],
-                help="Back=Blue, Side=Green, Forward=Red"
+                help="Back, Side, and Forward scattering angles."
             )
 
         if not selected_conditions:
@@ -57,18 +56,26 @@ if uploaded_file:
         show_residuals = st.sidebar.checkbox("Show Residuals & Error Analysis", value=True)
         use_log_scale = st.sidebar.checkbox("Use Log Scale for X-Axis", value=True)
         
-        # Beta parameter for g2 conversion (Standard is 1.0)
         beta_val = st.sidebar.number_input(
             "Intercept (Beta) for g₂ calc", 
             value=1.0, min_value=0.1, max_value=1.0, step=0.01, 
             help="Used to convert g₁ to g₂. Standard DLS assumes 1.0."
         )
 
-        # --- 4. Helpers & Logic ---
-        angle_colors = {"Back": "blue", "Side": "green", "Forward": "red"}
+        # --- 4. Color Customization Feature ---
+        st.sidebar.markdown("---")
+        st.sidebar.header("🎨 Color Customization")
+        
+        # Create a dictionary to store user-defined colors for each angle
+        angle_colors = {}
+        default_colors = {"Back": "#0000FF", "Side": "#008000", "Forward": "#FF0000"} # Blue, Green, Red
+        
+        for angle in ["Back", "Side", "Forward"]:
+            angle_colors[angle] = st.sidebar.color_picker(f"Color for {angle}", default_colors[angle])
+
+        # --- 5. Helpers & Logic ---
         line_styles = ['solid', 'dash', 'longdash', 'dashdot', 'dot']
         
-        # Standard column index mapping for the provided templates
         angle_map = {
             "Back":    {'t_exp': 0, 'd_exp': 1, 't_fit': 2, 'd_fit': 3},
             "Side":    {'t_exp': 4, 'd_exp': 5, 't_fit': 6, 'd_fit': 7},
@@ -88,7 +95,6 @@ if uploaded_file:
             cols = [indices['t_exp'], indices['d_exp'], indices['t_fit'], indices['d_fit']]
             subset = df.iloc[:, cols].dropna()
             subset = subset.apply(pd.to_numeric, errors='coerce').dropna()
-            # Time Filtering
             time_col = subset.iloc[:, 0]
             mask = (time_col >= t_min) & (time_col <= t_max)
             subset = subset[mask]
@@ -111,7 +117,7 @@ if uploaded_file:
             )
             return fig
 
-        # --- 5. Plotting Functions ---
+        # --- 6. Plotting Functions ---
 
         def create_single_type_plot(data_type_key, title):
             fig = go.Figure()
@@ -173,11 +179,7 @@ if uploaded_file:
                             t, y_exp, y_fit = get_aligned_data(df, indices, t_min, t_max)
                             if t is None: continue
                             
-                            # Residuals on g1
                             residuals_g1 = y_exp - y_fit
-                            
-                            # Specialist Metric: RMSE of g2 [cite: 130, 232, 251]
-                            # g2 = 1 + beta * g1^2
                             g2_exp = 1 + beta_val * (y_exp**2)
                             g2_fit = 1 + beta_val * (y_fit**2)
                             rmse_g2 = np.sqrt(np.mean((g2_exp - g2_fit)**2))
@@ -202,7 +204,7 @@ if uploaded_file:
             fig.update_layout(title="<b>Residuals (Experimental - Fit)</b>", template="plotly_white", height=500)
             return update_axes_layout(fig, y_title="Residuals (g₁)"), pd.DataFrame(error_data)
 
-        # --- 6. Final Layout ---
+        # --- 7. Final Layout ---
         st.markdown("### 2️⃣ Visual Analysis")
         col1, col2 = st.columns(2)
         with col1:
@@ -215,14 +217,13 @@ if uploaded_file:
         if show_exp_vs_fit:
             st.markdown("---")
             st.markdown("#### Experimental vs. Fit Comparison")
-            st.info("🔵 Back | 🟢 Side | 🔴 Forward  ---  (dotted = experimental, solid = fit)")
+            # Dynamic legend based on chosen colors
+            st.info(f"🎨 Legend: <span style='color:{angle_colors['Back']}'>●</span> Back | <span style='color:{angle_colors['Side']}'>●</span> Side | <span style='color:{angle_colors['Forward']}'>●</span> Forward (dotted = exp, solid = fit)", icon="ℹ️")
             st.plotly_chart(create_comparison_plot(), use_container_width=True)
 
         if show_residuals:
             st.markdown("---")
             st.markdown("### 3️⃣ Fit Quality & Specialist Metrics")
-            
-            # Use global time range for slider
             try:
                 sample_df = list(all_sheets.values())[0]
                 min_t = float(sample_df.iloc[:, 0].min())
@@ -242,7 +243,7 @@ if uploaded_file:
                 st.dataframe(df_error, hide_index=True)
                 st.caption("""
                 **Specialist Error (RMSE g₂):** Matches Malvern Zetasizer 'Distribution Fit Error'. 
-                Acceptable threshold is typically **< 0.005**[cite: 130, 232].
+                Acceptable threshold is typically **< 0.005**.
                 """)
 
     except Exception as e:
