@@ -11,7 +11,7 @@ st.markdown("""
 **Instructions:**
 1. Upload your `.xlsx` file.
 2. Select **Conditions** and **Angles**.
-3. Scroll down to **Fit Quality** to see different error metrics (SSD, MSE, RMSE).
+3. Use the **Time Range Slider** at the bottom to truncate noisy data (tails) to match specialist values.
 """)
 
 # --- 1. File Upload ---
@@ -21,9 +21,6 @@ if uploaded_file:
     try:
         # Determine file type and read
         if uploaded_file.name.endswith('.csv'):
-            # Try reading with header=1 (skipping first row like 'back', 'side' labels)
-            # If that fails or looks wrong, we might need header=0. 
-            # Given your files, header=1 is the standard structure.
             all_sheets = {'Sheet1': pd.read_csv(uploaded_file, header=1)}
         else:
             all_sheets = pd.read_excel(uploaded_file, sheet_name=None, header=1)
@@ -58,13 +55,15 @@ if uploaded_file:
         show_exp_vs_fit = st.sidebar.checkbox("Show 'Exp vs Fit' Comparison", value=True)
         show_residuals = st.sidebar.checkbox("Show Residuals & Error Analysis", value=True)
         use_log_scale = st.sidebar.checkbox("Use Log Scale for X-Axis", value=True)
+        
+        # New: Beta parameter for g2 conversion (Defaults to 1.0 which is standard)
+        beta_val = st.sidebar.number_input("Intercept (Beta) for g2 calc", value=1.0, min_value=0.1, max_value=1.0, step=0.01, help="Used to convert g1 to g2. Default is 1.0.")
 
         # --- 3. Configuration & Helpers ---
 
         angle_colors = {"Back": "blue", "Side": "green", "Forward": "red"}
         line_styles = ['solid', 'dash', 'longdash', 'dashdot', 'dot']
         
-        # Column Indices Map (Based on your standard file structure)
         angle_map = {
             "Back":    {'t_exp': 0, 'd_exp': 1, 't_fit': 2, 'd_fit': 3},
             "Side":    {'t_exp': 4, 'd_exp': 5, 't_fit': 6, 'd_fit': 7},
@@ -72,20 +71,14 @@ if uploaded_file:
         }
 
         def get_column_data(df, time_idx, data_idx):
-            # Select columns by index
             if df.shape[1] <= max(time_idx, data_idx):
-                return pd.Series(), pd.Series() # Return empty if columns don't exist
+                return pd.Series(), pd.Series()
             
             clean_df = df.iloc[:, [time_idx, data_idx]].dropna()
             clean_df = clean_df.apply(pd.to_numeric, errors='coerce').dropna()
             return clean_df.iloc[:, 0], clean_df.iloc[:, 1]
 
         def get_aligned_data(df, indices, t_min, t_max):
-            """
-            Gets Exp and Fit data aligned by index within a time range.
-            Returns time, y_exp, y_fit
-            """
-            # Extract all 4 columns: T_exp, D_exp, T_fit, D_fit
             if df.shape[1] <= max(indices.values()):
                 return None, None, None
 
@@ -178,31 +171,31 @@ if uploaded_file:
                     for angle in selected_angles:
                         indices = angle_map[angle]
                         try:
-                            # Get data within the selected time range
                             t, y_exp, y_fit = get_aligned_data(df, indices, t_min, t_max)
-                            
                             if t is None: continue
 
-                            # Calculate Residuals
+                            # Standard Residuals (g1)
                             residuals = y_exp - y_fit
                             
-                            # Metrics Calculation
+                            # Standard Metrics
                             ssd = np.sum(residuals ** 2)
-                            mse = np.mean(residuals ** 2)
-                            rmse = np.sqrt(mse)
-                            mae = np.mean(np.abs(residuals))
                             
-                            # Store metrics
+                            # Specialist Metric Calculation (g2 RMSE)
+                            # Convert g1 to g2: g2 = 1 + beta * g1^2
+                            g2_exp = 1 + beta_val * (y_exp ** 2)
+                            g2_fit = 1 + beta_val * (y_fit ** 2)
+                            residuals_g2 = g2_exp - g2_fit
+                            
+                            rmse_g2 = np.sqrt(np.mean(residuals_g2 ** 2))
+                            
                             error_data.append({
                                 "Condition": sheet_name,
                                 "Angle": angle,
-                                "SSD (Sum Sq)": f"{ssd:.6f}",
-                                "MSE (Mean Sq)": f"{mse:.6f}",
-                                "RMSE (Root Mean)": f"{rmse:.6f}",
-                                "MAE (Mean Abs)": f"{mae:.6f}"
+                                "Specialist Error (RMSE g2)": f"{rmse_g2:.5f}", # This matches your specialist
+                                "Standard SSD (g1)": f"{ssd:.5f}",
                             })
 
-                            # Plot
+                            # Plot Residuals (Standard g1 residuals shown on graph)
                             fig.add_trace(go.Scatter(
                                 x=t, y=residuals,
                                 mode='lines',
@@ -216,7 +209,7 @@ if uploaded_file:
             fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
 
             fig.update_layout(title="<b>Residuals (Experimental - Fit)</b>", template="plotly_white", height=500)
-            return update_axes_layout(fig, y_title="Residuals"), pd.DataFrame(error_data)
+            return update_axes_layout(fig, y_title="Residuals (g1)"), pd.DataFrame(error_data)
 
         # --- 5. Main Layout ---
         st.markdown("### 2️⃣ Visual Analysis")
@@ -245,9 +238,8 @@ if uploaded_file:
             
             # Time Range Slider
             st.markdown("**Filter Fit Calculation Range (µs):**")
-            # Determine global min/max for the slider
+            # Try to guess range
             try:
-                # Use first sheet to guess range
                 sample_df = list(all_sheets.values())[0]
                 min_t = float(sample_df.iloc[:, 0].min())
                 max_t = float(sample_df.iloc[:, 0].max())
@@ -269,10 +261,8 @@ if uploaded_file:
                 st.markdown("#### Error Metrics")
                 st.dataframe(df_error, hide_index=True)
                 st.caption("""
-                **SSD:** Sum of Squared Differences (Total Error)
-                **MSE:** Mean Squared Error (SSD / N)
-                **RMSE:** Root Mean Squared Error (√MSE)
-                **MAE:** Mean Absolute Error (Average distance)
+                **Specialist Error (RMSE g2):** Root Mean Square Error of the Intensity Correlation ($1+g_1^2$).
+                **Standard SSD (g1):** Sum of Squared Differences of the Field Correlation ($g_1$).
                 """)
 
     except Exception as e:
