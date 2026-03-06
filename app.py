@@ -9,8 +9,8 @@ st.title("📊 Correlogram Scattering Analysis")
 st.markdown("""
 **Instructions:**
 1. Upload your `.xlsx` file.
-2. **Select Conditions** and **Angles**.
-3. All selected data will be overlaid on the graphs below (Conditions = Colors, Angles = Line Styles).
+2. Select **Conditions** (Conditions determine line style in individual graphs).
+3. Select **Angles** (Angles determine color: Blue=Back, Green=Side, Red=Forward).
 """)
 
 # --- 1. File Upload ---
@@ -18,162 +18,152 @@ uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
 if uploaded_file:
     try:
-        # Read all sheets. header=1 uses the second row as headers.
+        # Read all sheets
         all_sheets = pd.read_excel(uploaded_file, sheet_name=None, header=1)
         sheet_names = list(all_sheets.keys())
         
-        # --- 2. Condition Selection ---
+        # --- 2. Selectors ---
         st.markdown("### 1️⃣ Select Data")
-        col_sel1, col_sel2 = st.columns(2)
         
+        col_sel1, col_sel2 = st.columns(2)
         with col_sel1:
             selected_conditions = st.multiselect(
-                "Choose Conditions to Plot (Colors):",
+                "Choose Conditions to Plot:",
                 sheet_names,
-                default=None, 
-                help="Different conditions will be assigned different colors."
+                default=None,
+                help="Select sheets. In the separate Exp/Fit graphs, these will use different dash styles."
             )
-
         with col_sel2:
             selected_angles = st.multiselect(
-                "Choose Angles to Overlay (Line Styles):",
+                "Choose Angles to View:",
                 ["Back", "Side", "Forward"],
-                default=["Back"],
-                help="Back=Solid, Side=Dash, Forward=Dot"
+                default=["Back", "Side", "Forward"],
+                help="Back=Blue, Side=Green, Forward=Red"
             )
 
         if not selected_conditions:
-            st.info("👆 Please select at least one condition to generate graphs.")
+            st.info("👆 Please select at least one condition.")
             st.stop()
 
-        if not selected_angles:
-            st.info("👆 Please select at least one angle.")
-            st.stop()
-
-        # --- 3. Sidebar Settings ---
+        # Sidebar Options
         st.sidebar.header("Graph Settings")
-        show_exp_vs_fit = st.sidebar.checkbox("Show 'Exp vs Fit' Graph", value=True)
+        show_exp_vs_fit = st.sidebar.checkbox("Show 'Exp vs Fit' Comparison", value=True)
         use_log_scale = st.sidebar.checkbox("Use Log Scale for X-Axis", value=True)
 
-        # --- 4. Plotting Functions ---
+        # --- 3. Configuration & Helpers ---
 
-        # Define styles for angles to distinguish them on the same graph
-        angle_styles = {
-            "Back": "solid",
-            "Side": "dash",
-            "Forward": "dot"
+        # 1. Color Map (Fixed by Angle)
+        angle_colors = {
+            "Back": "blue",
+            "Side": "green",
+            "Forward": "red"
         }
 
-        # Define Index Map
+        # 2. Line Style Map (Cycle for Conditions in the separate graphs)
+        line_styles = ['solid', 'dash', 'longdash', 'dashdot', 'dot']
+        
+        # 3. Column Indices
         angle_map = {
             "Back":    {'t_exp': 0, 'd_exp': 1, 't_fit': 2, 'd_fit': 3},
             "Side":    {'t_exp': 4, 'd_exp': 5, 't_fit': 6, 'd_fit': 7},
             "Forward": {'t_exp': 8, 'd_exp': 9, 't_fit': 10, 'd_fit': 11}
         }
-        
-        # Consistent Color Palette
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
         def get_column_data(df, time_idx, data_idx):
-            """Helper to safely get time and data columns by index."""
             clean_df = df.iloc[:, [time_idx, data_idx]].dropna()
             clean_df = clean_df.apply(pd.to_numeric, errors='coerce').dropna()
             return clean_df.iloc[:, 0], clean_df.iloc[:, 1]
 
-        def create_multi_angle_plot(data_type_key, title):
+        # --- 4. Plotting Functions ---
+
+        def create_single_type_plot(data_type_key, title):
             """
-            Creates a plot overlaying ALL selected conditions AND angles.
-            data_type_key: 'd_exp' or 'd_fit' (to choose which columns to grab)
+            Plots Exp OR Fit data.
+            Color = Angle
+            Line Style = Condition
             """
             fig = go.Figure()
-            
-            # Loop through Conditions (assigns Color)
+
             for i, sheet_name in enumerate(selected_conditions):
                 if sheet_name in all_sheets:
                     df = all_sheets[sheet_name]
-                    color = colors[i % len(colors)]
-
-                    # Loop through Angles (assigns Line Style)
+                    # Cycle styles for conditions
+                    style = line_styles[i % len(line_styles)]
+                    
                     for angle in selected_angles:
                         indices = angle_map[angle]
                         
-                        # Determine which Time/Data columns to use based on graph type (Exp or Fit)
+                        # Get Data
                         t_idx = indices['t_exp'] if data_type_key == 'd_exp' else indices['t_fit']
                         d_idx = indices[data_type_key]
-                        
                         x_data, y_data = get_column_data(df, t_idx, d_idx)
                         
-                        # Create Trace
+                        # Plot
                         fig.add_trace(go.Scatter(
                             x=x_data, y=y_data,
                             mode='lines',
-                            name=f"{sheet_name} ({angle})",
+                            name=f"{sheet_name} - {angle}",
                             line=dict(
-                                color=color, 
-                                dash=angle_styles[angle],
+                                color=angle_colors[angle],
+                                dash=style,
                                 width=2
                             ),
-                            legendgroup=f"{sheet_name}", # Group by condition in legend
-                            hovertemplate=f"<b>{sheet_name} - {angle}</b><br>Time: %{{x:.2e}}<br>Corr: %{{y:.3f}}<extra></extra>"
+                            legendgroup=f"{sheet_name}" 
                         ))
             
-            # Formatting
+            # Layout
             axis_type = "log" if use_log_scale else "linear"
             fig.update_xaxes(type=axis_type, tickformat=".1e", exponentformat="e")
-            
             fig.update_layout(
                 title=f"<b>{title}</b>",
                 xaxis_title="Time (µs)",
                 yaxis_title="Correlation",
                 template="plotly_white",
                 height=500,
-                legend=dict(title="Condition (Angle)")
+                legend=dict(title="Condition / Angle")
             )
             return fig
 
-        def create_comparison_plot_all():
-            """Creates the messy Exp vs Fit graph for everything selected."""
+        def create_comparison_plot():
+            """
+            Plots Exp vs Fit.
+            Color = Angle (Blue/Green/Red)
+            Line Style = Exp is DOT, Fit is SOLID
+            """
             fig = go.Figure()
-            
-            for i, sheet_name in enumerate(selected_conditions):
+
+            for sheet_name in selected_conditions:
                 if sheet_name in all_sheets:
                     df = all_sheets[sheet_name]
-                    color = colors[i % len(colors)]
-
+                    
                     for angle in selected_angles:
                         indices = angle_map[angle]
-                        
-                        # Experimental (Solid/Dash/Dot based on angle)
+                        c = angle_colors[angle]
+
+                        # 1. Experimental Data (Dotted)
                         x_exp, y_exp = get_column_data(df, indices['t_exp'], indices['d_exp'])
                         fig.add_trace(go.Scatter(
                             x=x_exp, y=y_exp,
                             mode='lines',
                             name=f"{sheet_name} {angle} (Exp)",
-                            line=dict(color=color, dash=angle_styles[angle], width=2),
-                            legendgroup=f"{sheet_name}_{angle}",
-                            showlegend=True
+                            line=dict(color=c, dash='dot', width=3), # Thicker dot for visibility
+                            legendgroup=f"{sheet_name}_{angle}"
                         ))
 
-                        # Fit (Same style but transparent/thinner or maybe markers? 
-                        # To distinguish Exp vs Fit AND Angle types is hard. 
-                        # Strategy: Fit is always DOTTED? No, that conflicts with Forward.
-                        # Strategy: Fit = lighter opacity same style)
-                        
+                        # 2. Fit Data (Solid)
                         x_fit, y_fit = get_column_data(df, indices['t_fit'], indices['d_fit'])
                         fig.add_trace(go.Scatter(
                             x=x_fit, y=y_fit,
                             mode='lines',
                             name=f"{sheet_name} {angle} (Fit)",
-                            line=dict(color=color, dash=angle_styles[angle], width=1), # Thinner line
-                            opacity=0.5, # Lighter
-                            legendgroup=f"{sheet_name}_{angle}",
-                            showlegend=False
+                            line=dict(color=c, dash='solid', width=1.5),
+                            legendgroup=f"{sheet_name}_{angle}"
                         ))
 
             axis_type = "log" if use_log_scale else "linear"
             fig.update_xaxes(type=axis_type, tickformat=".1e", exponentformat="e")
             fig.update_layout(
-                title="<b>Experimental vs Fit (Thick=Exp, Thin=Fit)</b>",
+                title="<b>Experimental (Dots) vs Fit (Solid)</b>",
                 xaxis_title="Time (µs)",
                 yaxis_title="Correlation",
                 template="plotly_white",
@@ -181,34 +171,28 @@ if uploaded_file:
             )
             return fig
 
-        # --- 5. Main Display ---
-
-        st.markdown("### 2️⃣ Combined Analysis")
+        # --- 5. Main Layout ---
+        st.markdown("### 2️⃣ Visual Analysis")
         
         col1, col2 = st.columns(2)
-        
         with col1:
-            # 1. Experimental Data Graph (All angles overlaid)
             st.markdown("#### Experimental Data")
-            fig_exp = create_multi_angle_plot('d_exp', "Experimental Data Overlay")
+            fig_exp = create_single_type_plot('d_exp', "Experimental Data Overlay")
             st.plotly_chart(fig_exp, use_container_width=True)
-
+        
         with col2:
-            # 2. Fit Data Graph (All angles overlaid)
             st.markdown("#### Distribution Fit")
-            fig_fit = create_multi_angle_plot('d_fit', "Distribution Fit Overlay")
+            fig_fit = create_single_type_plot('d_fit', "Distribution Fit Overlay")
             st.plotly_chart(fig_fit, use_container_width=True)
 
-        # 3. Comparison Graph
         if show_exp_vs_fit:
             st.markdown("---")
-            st.markdown("#### Experimental vs Fit Comparison")
-            st.info("💡 Note: Exp data is thick line, Fit data is thin/transparent line.")
-            fig_comp = create_comparison_plot_all()
+            st.markdown("#### Experimental vs. Fit Comparison")
+            st.info("🔵 Back | 🟢 Side | 🔴 Forward  ---  (dotted = experimental, solid = fit)")
+            fig_comp = create_comparison_plot()
             st.plotly_chart(fig_comp, use_container_width=True)
 
     except Exception as e:
         st.error(f"Error processing file: {e}")
-        st.warning("Please ensure your Excel file follows the standard template.")
 else:
     st.info("👆 Upload an Excel file to get started.")
