@@ -165,11 +165,11 @@ if uploaded_file:
                             # Calculate SSD (Fit Error)
                             ssd = np.sum(residuals ** 2)
                             
-                            # Store error for table
+                            # Store error for table - STANDARD FLOAT FORMATTING
                             error_data.append({
                                 "Condition": sheet_name,
                                 "Angle": angle,
-                                "Total Fit Error (SSD)": f"{ssd:.4e}"
+                                "Total Fit Error (SSD)": f"{ssd:.6f}" # Changed from .4e to .6f
                             })
 
                             # Plot
@@ -181,7 +181,7 @@ if uploaded_file:
                                 hovertemplate=f"<b>{sheet_name} {angle}</b><br>Res: %{{y:.2e}}<br>Time: %{{x:.1e}}"
                             ))
                         except Exception:
-                            continue # Skip if data missing for this angle
+                            continue 
 
             # Add Zero Line
             fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
