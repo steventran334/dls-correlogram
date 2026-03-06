@@ -11,16 +11,23 @@ st.markdown("""
 **Instructions:**
 1. Upload your `.xlsx` file.
 2. Select **Conditions** and **Angles**.
-3. Scroll down to see **Fit Error Analysis** and **Residuals**.
+3. Scroll down to **Fit Quality** to see different error metrics (SSD, MSE, RMSE).
 """)
 
 # --- 1. File Upload ---
-uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx", "csv"])
 
 if uploaded_file:
     try:
-        # Read all sheets
-        all_sheets = pd.read_excel(uploaded_file, sheet_name=None, header=1)
+        # Determine file type and read
+        if uploaded_file.name.endswith('.csv'):
+            # Try reading with header=1 (skipping first row like 'back', 'side' labels)
+            # If that fails or looks wrong, we might need header=0. 
+            # Given your files, header=1 is the standard structure.
+            all_sheets = {'Sheet1': pd.read_csv(uploaded_file, header=1)}
+        else:
+            all_sheets = pd.read_excel(uploaded_file, sheet_name=None, header=1)
+            
         sheet_names = list(all_sheets.keys())
         
         # --- 2. Selectors ---
@@ -31,8 +38,8 @@ if uploaded_file:
             selected_conditions = st.multiselect(
                 "Choose Conditions to Plot:",
                 sheet_names,
-                default=None,
-                help="Select sheets. In the separate Exp/Fit graphs, these will use different dash styles."
+                default=sheet_names[0] if sheet_names else None,
+                help="Select sheets/conditions."
             )
         with col_sel2:
             selected_angles = st.multiselect(
@@ -49,7 +56,7 @@ if uploaded_file:
         # Sidebar Options
         st.sidebar.header("Graph Settings")
         show_exp_vs_fit = st.sidebar.checkbox("Show 'Exp vs Fit' Comparison", value=True)
-        show_residuals = st.sidebar.checkbox("Show Residuals & Error", value=True)
+        show_residuals = st.sidebar.checkbox("Show Residuals & Error Analysis", value=True)
         use_log_scale = st.sidebar.checkbox("Use Log Scale for X-Axis", value=True)
 
         # --- 3. Configuration & Helpers ---
@@ -57,6 +64,7 @@ if uploaded_file:
         angle_colors = {"Back": "blue", "Side": "green", "Forward": "red"}
         line_styles = ['solid', 'dash', 'longdash', 'dashdot', 'dot']
         
+        # Column Indices Map (Based on your standard file structure)
         angle_map = {
             "Back":    {'t_exp': 0, 'd_exp': 1, 't_fit': 2, 'd_fit': 3},
             "Side":    {'t_exp': 4, 'd_exp': 5, 't_fit': 6, 'd_fit': 7},
@@ -64,25 +72,46 @@ if uploaded_file:
         }
 
         def get_column_data(df, time_idx, data_idx):
+            # Select columns by index
+            if df.shape[1] <= max(time_idx, data_idx):
+                return pd.Series(), pd.Series() # Return empty if columns don't exist
+            
             clean_df = df.iloc[:, [time_idx, data_idx]].dropna()
             clean_df = clean_df.apply(pd.to_numeric, errors='coerce').dropna()
             return clean_df.iloc[:, 0], clean_df.iloc[:, 1]
 
-        def get_aligned_data(df, indices):
+        def get_aligned_data(df, indices, t_min, t_max):
+            """
+            Gets Exp and Fit data aligned by index within a time range.
+            Returns time, y_exp, y_fit
+            """
+            # Extract all 4 columns: T_exp, D_exp, T_fit, D_fit
+            if df.shape[1] <= max(indices.values()):
+                return None, None, None
+
             cols = [indices['t_exp'], indices['d_exp'], indices['t_fit'], indices['d_fit']]
             subset = df.iloc[:, cols].dropna()
             subset = subset.apply(pd.to_numeric, errors='coerce').dropna()
+            
+            # Filter by Time Range
+            time_col = subset.iloc[:, 0]
+            mask = (time_col >= t_min) & (time_col <= t_max)
+            subset = subset[mask]
+            
+            if subset.empty:
+                return None, None, None
+
             return subset.iloc[:, 0], subset.iloc[:, 1], subset.iloc[:, 3]
 
         def update_axes_layout(fig, y_title="Correlation Coefficient (g₂-1)"):
             axis_type = "log" if use_log_scale else "linear"
             fig.update_xaxes(
-                title="Time (µs)", # Updated Label
+                title="Time (µs)", 
                 type=axis_type, tickformat=".1e", exponentformat="e",
                 showline=True, linewidth=1, linecolor='black', mirror=True
             )
             fig.update_yaxes(
-                title=y_title, # Updated Label
+                title=y_title, 
                 showline=True, linewidth=1, linecolor='black', mirror=True,
                 zeroline=False, rangemode="tozero"
             )
@@ -101,12 +130,13 @@ if uploaded_file:
                         t_idx = indices['t_exp'] if data_type_key == 'd_exp' else indices['t_fit']
                         d_idx = indices[data_type_key]
                         x_data, y_data = get_column_data(df, t_idx, d_idx)
-                        fig.add_trace(go.Scatter(
-                            x=x_data, y=y_data, mode='lines',
-                            name=f"{sheet_name} - {angle}",
-                            line=dict(color=angle_colors[angle], dash=style, width=2),
-                            legendgroup=f"{sheet_name}" 
-                        ))
+                        if not x_data.empty:
+                            fig.add_trace(go.Scatter(
+                                x=x_data, y=y_data, mode='lines',
+                                name=f"{sheet_name} - {angle}",
+                                line=dict(color=angle_colors[angle], dash=style, width=2),
+                                legendgroup=f"{sheet_name}" 
+                            ))
             fig.update_layout(title=f"<b>{title}</b>", template="plotly_white", height=500)
             return update_axes_layout(fig)
 
@@ -119,23 +149,24 @@ if uploaded_file:
                         indices = angle_map[angle]
                         c = angle_colors[angle]
                         x_exp, y_exp = get_column_data(df, indices['t_exp'], indices['d_exp'])
-                        fig.add_trace(go.Scatter(
-                            x=x_exp, y=y_exp, mode='lines',
-                            name=f"{sheet_name} {angle} (Exp)",
-                            line=dict(color=c, dash='dot', width=3),
-                            legendgroup=f"{sheet_name}_{angle}"
-                        ))
-                        x_fit, y_fit = get_column_data(df, indices['t_fit'], indices['d_fit'])
-                        fig.add_trace(go.Scatter(
-                            x=x_fit, y=y_fit, mode='lines',
-                            name=f"{sheet_name} {angle} (Fit)",
-                            line=dict(color=c, dash='solid', width=1.5),
-                            legendgroup=f"{sheet_name}_{angle}"
-                        ))
+                        if not x_exp.empty:
+                            fig.add_trace(go.Scatter(
+                                x=x_exp, y=y_exp, mode='lines',
+                                name=f"{sheet_name} {angle} (Exp)",
+                                line=dict(color=c, dash='dot', width=3),
+                                legendgroup=f"{sheet_name}_{angle}"
+                            ))
+                            x_fit, y_fit = get_column_data(df, indices['t_fit'], indices['d_fit'])
+                            fig.add_trace(go.Scatter(
+                                x=x_fit, y=y_fit, mode='lines',
+                                name=f"{sheet_name} {angle} (Fit)",
+                                line=dict(color=c, dash='solid', width=1.5),
+                                legendgroup=f"{sheet_name}_{angle}"
+                            ))
             fig.update_layout(title="<b>Experimental (Dots) vs Fit (Solid)</b>", template="plotly_white", height=600)
             return update_axes_layout(fig)
 
-        def create_residuals_plot():
+        def create_residuals_plot(t_min, t_max):
             fig = go.Figure()
             error_data = []
 
@@ -147,16 +178,31 @@ if uploaded_file:
                     for angle in selected_angles:
                         indices = angle_map[angle]
                         try:
-                            t, y_exp, y_fit = get_aligned_data(df, indices)
-                            residuals = y_exp - y_fit
-                            ssd = np.sum(residuals ** 2)
+                            # Get data within the selected time range
+                            t, y_exp, y_fit = get_aligned_data(df, indices, t_min, t_max)
                             
+                            if t is None: continue
+
+                            # Calculate Residuals
+                            residuals = y_exp - y_fit
+                            
+                            # Metrics Calculation
+                            ssd = np.sum(residuals ** 2)
+                            mse = np.mean(residuals ** 2)
+                            rmse = np.sqrt(mse)
+                            mae = np.mean(np.abs(residuals))
+                            
+                            # Store metrics
                             error_data.append({
                                 "Condition": sheet_name,
                                 "Angle": angle,
-                                "Total Fit Error (SSD)": f"{ssd:.6f}"
+                                "SSD (Sum Sq)": f"{ssd:.6f}",
+                                "MSE (Mean Sq)": f"{mse:.6f}",
+                                "RMSE (Root Mean)": f"{rmse:.6f}",
+                                "MAE (Mean Abs)": f"{mae:.6f}"
                             })
 
+                            # Plot
                             fig.add_trace(go.Scatter(
                                 x=t, y=residuals,
                                 mode='lines',
@@ -170,8 +216,7 @@ if uploaded_file:
             fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
 
             fig.update_layout(title="<b>Residuals (Experimental - Fit)</b>", template="plotly_white", height=500)
-            # For residuals, the Y-axis is technically the difference in correlation
-            return update_axes_layout(fig, y_title="Residuals (g₂-1)"), pd.DataFrame(error_data)
+            return update_axes_layout(fig, y_title="Residuals"), pd.DataFrame(error_data)
 
         # --- 5. Main Layout ---
         st.markdown("### 2️⃣ Visual Analysis")
@@ -196,9 +241,24 @@ if uploaded_file:
 
         if show_residuals:
             st.markdown("---")
-            st.markdown("### 3️⃣ Fit Quality & Residuals")
+            st.markdown("### 3️⃣ Fit Quality & Error Metrics")
             
-            fig_res, df_error = create_residuals_plot()
+            # Time Range Slider
+            st.markdown("**Filter Fit Calculation Range (µs):**")
+            # Determine global min/max for the slider
+            try:
+                # Use first sheet to guess range
+                sample_df = list(all_sheets.values())[0]
+                min_t = float(sample_df.iloc[:, 0].min())
+                max_t = float(sample_df.iloc[:, 0].max())
+            except:
+                min_t, max_t = 0.0, 10000.0
+            
+            range_val = st.slider("Select Time Range for Error Calculation", 
+                                  min_value=min_t, max_value=max_t, 
+                                  value=(min_t, max_t), step=1.0)
+            
+            fig_res, df_error = create_residuals_plot(range_val[0], range_val[1])
             
             r_col1, r_col2 = st.columns([3, 1])
             
@@ -206,11 +266,16 @@ if uploaded_file:
                 st.plotly_chart(fig_res, use_container_width=True)
             
             with r_col2:
-                st.markdown("#### Fit Error (SSD)")
+                st.markdown("#### Error Metrics")
                 st.dataframe(df_error, hide_index=True)
-                st.caption("SSD = Sum of Squared Differences $\sum(Exp - Fit)^2$")
+                st.caption("""
+                **SSD:** Sum of Squared Differences (Total Error)
+                **MSE:** Mean Squared Error (SSD / N)
+                **RMSE:** Root Mean Squared Error (√MSE)
+                **MAE:** Mean Absolute Error (Average distance)
+                """)
 
     except Exception as e:
         st.error(f"Error processing file: {e}")
 else:
-    st.info("👆 Upload an Excel file to get started.")
+    st.info("👆 Upload an Excel or CSV file to get started.")
