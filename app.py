@@ -9,8 +9,8 @@ st.title("📊 Correlogram Scattering Analysis")
 st.markdown("""
 **Instructions:**
 1. Upload your `.xlsx` file.
-2. Select **Conditions** (Conditions determine line style in individual graphs).
-3. Select **Angles** (Angles determine color: Blue=Back, Green=Side, Red=Forward).
+2. Select **Conditions** (different line styles in individual graphs).
+3. Select **Angles** (Blue=Back, Green=Side, Red=Forward).
 """)
 
 # --- 1. File Upload ---
@@ -59,7 +59,7 @@ if uploaded_file:
             "Forward": "red"
         }
 
-        # 2. Line Style Map (Cycle for Conditions in the separate graphs)
+        # 2. Line Style Map (Cycle for Conditions)
         line_styles = ['solid', 'dash', 'longdash', 'dashdot', 'dot']
         
         # 3. Column Indices
@@ -74,6 +74,23 @@ if uploaded_file:
             clean_df = clean_df.apply(pd.to_numeric, errors='coerce').dropna()
             return clean_df.iloc[:, 0], clean_df.iloc[:, 1]
 
+        def update_axes_layout(fig):
+            """Helper to apply axis lines and zero lines consistently."""
+            axis_type = "log" if use_log_scale else "linear"
+            
+            fig.update_xaxes(
+                type=axis_type, 
+                tickformat=".1e", 
+                exponentformat="e",
+                showline=True, linewidth=1, linecolor='black', mirror=True,
+                zeroline=True, zerolinewidth=1, zerolinecolor='grey'
+            )
+            fig.update_yaxes(
+                showline=True, linewidth=1, linecolor='black', mirror=True,
+                zeroline=True, zerolinewidth=1.5, zerolinecolor='black' # Bold zero line
+            )
+            return fig
+
         # --- 4. Plotting Functions ---
 
         def create_single_type_plot(data_type_key, title):
@@ -84,6 +101,7 @@ if uploaded_file:
             """
             fig = go.Figure()
 
+            # Loop through selected conditions
             for i, sheet_name in enumerate(selected_conditions):
                 if sheet_name in all_sheets:
                     df = all_sheets[sheet_name]
@@ -112,8 +130,6 @@ if uploaded_file:
                         ))
             
             # Layout
-            axis_type = "log" if use_log_scale else "linear"
-            fig.update_xaxes(type=axis_type, tickformat=".1e", exponentformat="e")
             fig.update_layout(
                 title=f"<b>{title}</b>",
                 xaxis_title="Time (µs)",
@@ -122,6 +138,7 @@ if uploaded_file:
                 height=500,
                 legend=dict(title="Condition / Angle")
             )
+            fig = update_axes_layout(fig)
             return fig
 
         def create_comparison_plot():
@@ -146,7 +163,7 @@ if uploaded_file:
                             x=x_exp, y=y_exp,
                             mode='lines',
                             name=f"{sheet_name} {angle} (Exp)",
-                            line=dict(color=c, dash='dot', width=3), # Thicker dot for visibility
+                            line=dict(color=c, dash='dot', width=3),
                             legendgroup=f"{sheet_name}_{angle}"
                         ))
 
@@ -160,8 +177,6 @@ if uploaded_file:
                             legendgroup=f"{sheet_name}_{angle}"
                         ))
 
-            axis_type = "log" if use_log_scale else "linear"
-            fig.update_xaxes(type=axis_type, tickformat=".1e", exponentformat="e")
             fig.update_layout(
                 title="<b>Experimental (Dots) vs Fit (Solid)</b>",
                 xaxis_title="Time (µs)",
@@ -169,6 +184,7 @@ if uploaded_file:
                 template="plotly_white",
                 height=600
             )
+            fig = update_axes_layout(fig)
             return fig
 
         # --- 5. Main Layout ---
